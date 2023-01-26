@@ -1,9 +1,5 @@
-// #include "BluetoothSerial.h"
-// #include <Arduino.h>
 // #include <BleKeyboard.h>
-// #include <Keypad.h>
 
-// BluetoothSerial SerialBT;
 // BleKeyboard bleKeyboard;
 // int button = 34;
 
@@ -11,20 +7,9 @@
 //   Serial.begin(115200);
 //   pinMode(button, INPUT_PULLUP);
 //   bleKeyboard.begin();
-//   Serial.println("Starting BLE work!");
-//   SerialBT.begin("ESP32test"); //Bluetooth device name
-//   Serial.println("The device started, now you can pair it with bluetooth!");
 // }
 
 // void loop() {
-//   if (Serial.available()) 
-//   {
-//     SerialBT.write(Serial.read());
-//   }
-//   if (SerialBT.available())
-//   {
-//     Serial.write(SerialBT.read());
-//   }
 //   if (digitalRead(button) == LOW) 
 //   {
 //     Serial.println("Button is pressed");
@@ -38,86 +23,79 @@
 // }
 
 #include <WiFi.h>
-#include <WebSocketClient.h>
+#include <blekeyboard.h>
+#include <ArduinoWebsockets.h>
 
+BleKeyboard bleKeyboard;
+int button = 27;
 
-const char* ssid     = "wifirobot";
-const char* password = "5cjWSgq7sefAnnJq";
-char path[] = "/";
-char host[] = "localhost";
+const char* ssid = "wifirobot"; //Enter SSID
+const char* password = "16121998"; //Enter Password
+const char* websockets_server_host = "192.168.1.37"; //Enter server adress
+const uint16_t websockets_server_port = 8050; // Enter server port
 
-WebSocketClient webSocketClient;
+using namespace websockets;
 
-// Use WiFiClient class to create TCP connections
-WiFiClient client;
-
-void setup() {
-  Serial.begin(115200);
-  delay(10);
-
-  // We start by connecting to a WiFi network
-
-  Serial.println();
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println("Wifi-local");
-  
-  WiFi.begin(ssid, password);
-  
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.println("WiFi connected");  
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-  delay(5000);
-  
-
-  // Connect to the websocket server
-  if (client.connect("192.168.10.58", 8050)) {
-    Serial.println("Connected");
-  } else {
-    Serial.println("Connection failed.");
-    while(1) {
-      // Hang on failure
-    }
-  }
-
-  // Handshake with the server
-  webSocketClient.path = path;
-  webSocketClient.host = host;
-  if (webSocketClient.handshake(client)) {
-    Serial.println("Handshake successful");
-  } else {
-    Serial.println("Handshake failed.");
-    while(1) {
-      // Hang on failure
-    }  
-  }
-
+void onMessageCallback(WebsocketsMessage message) {
+    Serial.print("Got Message: ");
+    Serial.println(message.data());
 }
 
+void onEventsCallback(WebsocketsEvent event, String data) {
+    if(event == WebsocketsEvent::ConnectionOpened) {
+        Serial.println("Connnection Opened");
+    } else if(event == WebsocketsEvent::ConnectionClosed) {
+        Serial.println("Connnection Closed");
+    } else if(event == WebsocketsEvent::GotPing) {
+        Serial.println("Got a Ping!");
+    } else if(event == WebsocketsEvent::GotPong) {
+        Serial.println("Got a Pong!");
+    }
+}
+
+WebsocketsClient client;
+void setup() {
+    Serial.begin(115200);
+    // Connect to wifi
+    WiFi.begin(ssid, password);
+
+    // Wait some time to connect to wifi
+    for(int i = 0; i < 10 && WiFi.status() != WL_CONNECTED; i++) {
+        Serial.print(".");
+        delay(1000);
+    }
+
+    // run callback when messages are received
+    client.onMessage(onMessageCallback);
+    
+    // run callback when events are occuring
+    client.onEvent(onEventsCallback);
+
+    // Connect to server
+    client.connect(websockets_server_host, websockets_server_port, "/");
+
+    // Send a message
+    client.send("Hello Server");
+
+    // Send a ping
+    client.ping();
+
+    Serial.begin(115200);
+    pinMode(button, INPUT_PULLUP);
+    bleKeyboard.begin();
+}
 
 void loop() {
-  String data;
-      	
-  if (client.connected()) {
-    
-		webSocketClient.sendData( String(  ESP.getFreeHeap()  ).c_str() ); 		
- 	  Serial.println(ESP.getFreeHeap());
-
- 
-  } else {
-  	Serial.println("Client disconnected.");
-    while (1) {
-      // Hang on disconnect.
- 
-    }
+  client.poll();
+  if (digitalRead(button) == LOW) 
+  {
+    Serial.println("Button is pressed");
+    bleKeyboard.press(KEY_LEFT_CTRL);
+    bleKeyboard.press(KEY_LEFT_ALT);
+    bleKeyboard.press(KEY_DELETE);
+    delay(20);
+    bleKeyboard.releaseAll();
+    while(digitalRead(button) == LOW);
   }
- 
-  delay(500);
-  
+
 }
