@@ -46,7 +46,7 @@ void ConfigReveived(WebsocketsMessage message)
   Serial.println(TOUCHE1_isMedia);
   Serial.println(TOUCHE1_key1);
   Serial.println(TOUCHE1_key2);
- // Serial.println(TOUCHE1_key3);
+  Serial.println(TOUCHE1_key3);
   isMedia = TOUCHE1_isMedia;
   Serial.println(isMedia);
   if(isMedia == "false")
