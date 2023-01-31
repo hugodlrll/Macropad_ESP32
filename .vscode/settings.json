@@ -4,5 +4,6 @@
         "string": "cpp",
         "string_view": "cpp",
         "*.tcc": "cpp"
-    }
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }

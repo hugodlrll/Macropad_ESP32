@@ -1,58 +1,57 @@
+// Libraries
 #include <WiFi.h>
-#include <blekeyboard.h>
 #include <ArduinoWebsockets.h>
 #include <ArduinoJson.h>
 #include <Keypad.h>
 #include <Arduino.h>
-
-TaskHandle_t task1;
-TaskHandle_t task2;
-const char *action;
-String isMedia;
-char key1;
-char key2;
-char key3;
-uint8_t media[2] = {};
-
-const char *ssid = "wifirobot";           //"SFR_43A0";   //Enter SSID
-const char *password = "5cjWSgq7sefAnnJq";  //  "16121998";   //Enter Password
-const char *websockets_server_host = "192.168.10.58"; // Enter server adress
-const uint16_t websockets_server_port = 8050;        // Enter server port
+#include "KeyConfig.h"
 
 using namespace websockets;
 
+// Classes
 WebsocketsClient client;
-BleKeyboard bleKeyboard;
-int button = 13;
+KeyConfig Touche1;
+KeyConfig Touche2;
+KeyConfig Touche3;
 
-void ConfigReveived(WebsocketsMessage message)
+// Variables temporaires pour une trame JSON
+char ReceivedKeyNumber;
+char ReceivedKey1;
+char ReceivedKey2;
+char ReceivedKey3;
+String IsMedia;
+uint8_t ReceivedMedia[2];
+
+// définition des pins
+#define PinTouche1 13
+#define PinTouche2 10
+#define PinTouche3 9
+
+// Tâches
+TaskHandle_t Conf;
+TaskHandle_t Ble;
+
+// Id Wifi
+const char *action;
+const char *ssid = /*"wifirobot";*/                      "SFR_43A0";   //Enter SSID
+const char *password = /*"5cjWSgq7sefAnnJq";   */          "16121998";   //Enter Password
+const char *websockets_server_host = "192.168.10.58"; // Enter server adress
+const uint16_t websockets_server_port = 8050;         // Enter server port
+
+//-------------------------------------------------------------
+// Réception des trames JSON
+//-------------------------------------------------------------
+void ConvertKey(const char *Touche1, const char *Touche2, const char *Touche3, const char *NumTouche)
 {
-  String data = message.data();
-  StaticJsonDocument<200> doc;
-  DeserializationError error = deserializeJson(doc, data);
-  if (error)
-  {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.f_str());
-    return;
-  }
-  JsonObject TOUCHE1 = doc["action"];
-  const char *TOUCHE1_action = doc["action"];
-  const char *TOUCHE1_keynumber = doc["keynumber"];
-  const char *TOUCHE1_isMedia = doc["isMedia"];
-  const char *TOUCHE1_key1 = doc["key1"];
-  const char *TOUCHE1_key2 = doc["key2"];
-  const char *TOUCHE1_key3 = doc["key3"];
-  isMedia = TOUCHE1_isMedia;
-  if (isMedia == "false")
-  {
-    key1 = (char)strtol(TOUCHE1_key1, NULL, 0);
-    key2 = (char)strtol(TOUCHE1_key2, NULL, 0);
-    key3 = (char)strtol(TOUCHE1_key3, NULL, 0);
-  }
-  if (isMedia == "true")
-  {
-    char *copy = strdup(TOUCHE1_key1);
+  ReceivedKey1 = (char)strtol(Touche1, NULL, 0);
+  ReceivedKey2 = (char)strtol(Touche2, NULL, 0);
+  ReceivedKey3 = (char)strtol(Touche3, NULL, 0);
+  ReceivedKeyNumber = (char)strtol(NumTouche, NULL, 0);
+}
+
+void ConvertMedia(const char *ToucheMedia, uint8_t *media)
+{
+  char *copy = strdup(ToucheMedia);
     char *p = strtok(copy, ",");
     int i = 0;
     while (p != NULL)
@@ -61,55 +60,53 @@ void ConfigReveived(WebsocketsMessage message)
       p = strtok(NULL, ",");
     }
     free(copy);
-  }
 }
 
-void KeyPressed(char key1, char key2, char key3)
+void ReceivedKeyConfiguration(WebsocketsMessage message)
 {
-  int buttonPressTime;
-  if (isMedia == "false")
+  // Trame JSON reçue
+  String JsonString = message.data();
+  // création d'un document JSON pour stocker données reçues
+  StaticJsonDocument<200> doc;
+  // désérialisation de la trame JSON
+  DeserializationError error = deserializeJson(doc, JsonString);
+  if (error)
   {
-    bleKeyboard.press(key1);
-    bleKeyboard.press(key2);
-    bleKeyboard.press(key3);
-    bleKeyboard.releaseAll();
-    delay(20);
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.c_str());
+    return;
   }
-  if (isMedia == "true")
+  JsonObject TOUCHE1 = doc["action"];
+  // récupération des données reçues
+  const char *TOUCHE1_KeyNumber = TOUCHE1["keyNumber"];
+  const char *TOUCHE1_Key1 = TOUCHE1["key1"];
+  const char *TOUCHE1_Key2  = TOUCHE1["key2"];
+  const char *TOUCHE1_Key3 = TOUCHE1["key3"];
+  const char *TOUCHE1_IsMedia = TOUCHE1["isMedia"];
+  if(TOUCHE1_IsMedia == "true")
   {
-    bleKeyboard.write(media);
-    buttonPressTime = millis();
-    while (digitalRead(button) == LOW)
-    {
-      if (millis() - buttonPressTime > 600)
-      {
-        bleKeyboard.press(media);
-        delay(20);
-      }
-      bleKeyboard.releaseAll();
-    }
+    ConvertMedia(TOUCHE1_IsMedia, ReceivedMedia);
+  }
+  if(TOUCHE1_IsMedia == "false")
+  {
+    ConvertKey(TOUCHE1_Key1, TOUCHE1_Key2, TOUCHE1_Key3, TOUCHE1_KeyNumber);
   }
 }
 
-void buttonpressed(char key1, char key2, char key3, int button){
-     if (digitalRead(button) == LOW)
-    {
-      Serial.println("Button is pressed");
-      KeyPressed(key1, key2, key3);
-      while (digitalRead(button) == LOW)
-        ;
-    }
-}
+//-------------------------------------------------------------
+// Tâches exécutées sur les deux coeurs de l'Esp32
+//-------------------------------------------------------------
 
+// Tâche pour envoi des inputs bluetooth
 void Bluetooth(void *parameter)
 {
   for (;;)
   {
-    buttonpressed(key1, key2, key3, button);
     delay(20);
   }
 }
 
+// Tâche pour connexion au serveur
 void Configuration(void *parameter)
 {
   for (;;)
@@ -119,11 +116,23 @@ void Configuration(void *parameter)
   delay(20);
 }
 
+//-------------------------------------------------------------
+// Setup & Loop
+//-------------------------------------------------------------
+
 void setup()
 {
+  // Start serial
   Serial.begin(115200);
-  pinMode(button, INPUT_PULLUP);
+
+  // initialisation des pins
+  pinMode(PinTouche1, INPUT-PULLUP);
+  pinMode(PinTouche2, INPUT-PULLUP);
+  pinMode(PinTouche3, INPUT-PULLUP);
+
+  // Start Bluetooth
   bleKeyboard.begin();
+
   // Connect to wifi
   WiFi.begin(ssid, password);
 
@@ -151,21 +160,19 @@ void setup()
   }
   else
   {
-    Serial.println("Not Connected!");
+    Serial.println("Not Connected !");
   }
 
   // run callback when messages are received
   client.onMessage([&](WebsocketsMessage message)
   { 
     Serial.println("Message received: " + message.data());
-    ConfigReveived(message); 
-    });
+    ReceivedKeyConfiguration(message); 
+  });
 
-  xTaskCreatePinnedToCore(Configuration, "task1", 10000, NULL, 1, &task1, 1);
-  xTaskCreatePinnedToCore(Bluetooth, "task2", 10000, NULL, 1, &task2, 0);
+  // Start tasks
+  xTaskCreatePinnedToCore(Configuration, "task1", 10000, NULL, 1, &Conf, 1);
+  xTaskCreatePinnedToCore(Bluetooth, "task2", 10000, NULL, 1, &Ble, 0);
 }
 
-void loop()
-{
-  // client.poll();
-}
+void loop() {}
