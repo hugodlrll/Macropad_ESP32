@@ -19,9 +19,8 @@ class KeyConfig
         if(KeyIsPressed() == true)
         {
             InputType();
-            Serial.println("Button pressed : " + KeyNumber);
-            while (KeyIsPressed() == true);
         }
+        while(KeyIsPressed() == true);
     }
 
     void InputType()
@@ -48,6 +47,7 @@ class KeyConfig
 
     void ApplyMediaInput ()
     {
+        Serial.println("Media Input : " + String(MediaInput[0]) + " " + String(MediaInput[1]));
         bleKeyboard.write(MediaInput);
         delay(20);
     }
@@ -57,6 +57,7 @@ class KeyConfig
         if(digitalRead(PinNumber) == LOW)
         {
             return true;
+            Serial.println("Key is pressed");
         }
         else
         {

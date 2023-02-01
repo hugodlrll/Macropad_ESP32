@@ -33,8 +33,8 @@ TaskHandle_t Ble;
 
 // Id Wifi
 const char *action;
-const char *ssid = /*"wifirobot";*/                      "SFR_43A0";   //Enter SSID
-const char *password = /*"5cjWSgq7sefAnnJq";   */          "16121998";   //Enter Password
+const char *ssid = "wifirobot";                     //"SFR_43A0";   //Enter SSID
+const char *password = "5cjWSgq7sefAnnJq";             //"16121998";   //Enter Password
 const char *websockets_server_host = "192.168.10.58"; // Enter server adress
 const uint16_t websockets_server_port = 8050;         // Enter server port
 
@@ -47,10 +47,12 @@ void ConvertKey(const char *Touche1, const char *Touche2, const char *Touche3, c
   ReceivedKey2 = (char)strtol(Touche2, NULL, 0);
   ReceivedKey3 = (char)strtol(Touche3, NULL, 0);
   ReceivedKeyNumber = (char)strtol(NumTouche, NULL, 0);
+  Serial.println("ReceivedKey1 : " + String(ReceivedKey1));
 }
 
-void ConvertMedia(const char *ToucheMedia, uint8_t *media)
+void ConvertMedia(const char *ToucheMedia, uint8_t *media, const char *NumTouche)
 {
+  ReceivedKeyNumber = (char)strtol(NumTouche, NULL, 0);
   char *copy = strdup(ToucheMedia);
     char *p = strtok(copy, ",");
     int i = 0;
@@ -78,18 +80,55 @@ void ReceivedKeyConfiguration(WebsocketsMessage message)
   }
   JsonObject TOUCHE1 = doc["action"];
   // récupération des données reçues
-  const char *TOUCHE1_KeyNumber = TOUCHE1["keyNumber"];
-  const char *TOUCHE1_Key1 = TOUCHE1["key1"];
-  const char *TOUCHE1_Key2  = TOUCHE1["key2"];
-  const char *TOUCHE1_Key3 = TOUCHE1["key3"];
-  const char *TOUCHE1_IsMedia = TOUCHE1["isMedia"];
-  if(TOUCHE1_IsMedia == "true")
+  const char *TOUCHE1_KeyNumber = doc["keynumber"];
+  const char *TOUCHE1_Key1 = doc["key1"];
+  const char *TOUCHE1_Key2  = doc["key2"];
+  const char *TOUCHE1_Key3 = doc["key3"];
+  const char *TOUCHE1_IsMedia = doc["isMedia"];
+  IsMedia = TOUCHE1_IsMedia;
+  // conversion des données reçues
+  if(IsMedia == "true")
   {
-    ConvertMedia(TOUCHE1_IsMedia, ReceivedMedia);
+    Serial.println("Media " + String(TOUCHE1_Key1));
+    ConvertMedia(TOUCHE1_Key1, ReceivedMedia, TOUCHE1_KeyNumber);
   }
-  if(TOUCHE1_IsMedia == "false")
+  if(IsMedia == "false")
   {
     ConvertKey(TOUCHE1_Key1, TOUCHE1_Key2, TOUCHE1_Key3, TOUCHE1_KeyNumber);
+  }
+}
+
+void DefineSelectedKey()
+{
+  if(ReceivedKeyNumber == 1)
+  {
+    Touche1.KeyInput1 = ReceivedKey1;
+    Touche1.KeyInput2 = ReceivedKey2;
+    Touche1.KeyInput3 = ReceivedKey3;
+    Touche1.IsMedia = IsMedia;
+    Touche1.MediaInput[0] = ReceivedMedia[0];
+    Touche1.MediaInput[1] = ReceivedMedia[1];
+    Serial.println("Touche1");
+  }
+  else if(ReceivedKeyNumber == 2)
+  {
+    Touche2.KeyInput1 = ReceivedKey1;
+    Touche2.KeyInput2 = ReceivedKey2;
+    Touche2.KeyInput3 = ReceivedKey3;
+    Touche2.IsMedia = IsMedia;
+    Touche2.MediaInput[0] = ReceivedMedia[0];
+    Touche2.MediaInput[1] = ReceivedMedia[1];
+    Serial.println("Touche2");
+  }
+  else if(ReceivedKeyNumber == 3)
+  {
+    Touche3.KeyInput1 = ReceivedKey1;
+    Touche3.KeyInput2 = ReceivedKey2;
+    Touche3.KeyInput3 = ReceivedKey3;
+    Touche3.IsMedia = IsMedia;
+    Touche3.MediaInput[0] = ReceivedMedia[0];
+    Touche3.MediaInput[1] = ReceivedMedia[1];
+    Serial.println("Touche3");
   }
 }
 
@@ -102,6 +141,9 @@ void Bluetooth(void *parameter)
 {
   for (;;)
   {
+    Touche1.SendInput();
+    Touche2.SendInput();
+    Touche3.SendInput();
     delay(20);
   }
 }
@@ -112,8 +154,8 @@ void Configuration(void *parameter)
   for (;;)
   {
     client.poll();
+    delay(20);
   }
-  delay(20);
 }
 
 //-------------------------------------------------------------
@@ -124,11 +166,14 @@ void setup()
 {
   // Start serial
   Serial.begin(115200);
-
-  // initialisation des pins
-  pinMode(PinTouche1, INPUT-PULLUP);
-  pinMode(PinTouche2, INPUT-PULLUP);
-  pinMode(PinTouche3, INPUT-PULLUP);
+  
+  // initialisation des pins et assignation aux classes
+  Touche1.PinNumber = PinTouche1;
+  Touche2.PinNumber = PinTouche2;
+  Touche3.PinNumber = PinTouche3;
+  pinMode(Touche1.PinNumber, INPUT_PULLUP);
+  pinMode(Touche2.PinNumber , INPUT_PULLUP);
+  pinMode(Touche3.PinNumber, INPUT_PULLUP);
 
   // Start Bluetooth
   bleKeyboard.begin();
@@ -167,7 +212,8 @@ void setup()
   client.onMessage([&](WebsocketsMessage message)
   { 
     Serial.println("Message received: " + message.data());
-    ReceivedKeyConfiguration(message); 
+    ReceivedKeyConfiguration(message);
+    DefineSelectedKey(); 
   });
 
   // Start tasks
