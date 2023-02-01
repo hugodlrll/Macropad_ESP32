@@ -5,27 +5,18 @@
 #include <Keypad.h>
 #include <Arduino.h>
 #include "KeyConfig.h"
+#include <MatrixKeypad.h>
+// #include <EEPROM.h>
+
+// #define EEPROM_SIZE 512
 
 using namespace websockets;
 
 // Classes
 WebsocketsClient client;
-KeyConfig Touche1;
-KeyConfig Touche2;
-KeyConfig Touche3;
+KeyConfig Touche[9];
 
-// Variables temporaires pour une trame JSON
-char ReceivedKeyNumber;
-char ReceivedKey1;
-char ReceivedKey2;
-char ReceivedKey3;
-String IsMedia;
-uint8_t ReceivedMedia[2];
-
-// définition des pins
-#define PinTouche1 13
-#define PinTouche2 10
-#define PinTouche3 9
+MatrixKeypad_t *keypad;
 
 // Tâches
 TaskHandle_t Conf;
@@ -33,43 +24,32 @@ TaskHandle_t Ble;
 
 // Id Wifi
 const char *action;
-const char *ssid = "wifirobot";                     //"SFR_43A0";   //Enter SSID
-const char *password = "5cjWSgq7sefAnnJq";             //"16121998";   //Enter Password
-const char *websockets_server_host = "192.168.10.58"; // Enter server adress
-const uint16_t websockets_server_port = 8050;         // Enter server port
+const char *ssid = /*"wifirobot";*/ "SFR_43A0";            // Enter SSID
+const char *password = /*"5cjWSgq7sefAnnJq";*/ "16121998"; // Enter Password
+const char *websockets_server_host = "192.168.1.83";       // Enter server adress
+const uint16_t websockets_server_port = 8050;              // Enter server port
+
+// Variables pour le clavier matricielle
+const byte ROWS = 3;               // 3 rows
+const byte COLS = 3;               // 3 columns
+byte rowPins[ROWS] = {9, 10, 13};  // connect to the row pinouts of the keypad
+byte colPins[COLS] = {25, 26, 27}; // connect to the column pinouts of the keypad
+char keymap[ROWS][COLS] = {
+    {'0', '1', '2'},
+    {'3', '4', '5'},
+    {'6', '7', '8'}}; // keymap for the keypad
+char Touchepress;
 
 //-------------------------------------------------------------
 // Réception des trames JSON
 //-------------------------------------------------------------
-void ConvertKey(const char *Touche1, const char *Touche2, const char *Touche3, const char *NumTouche)
-{
-  ReceivedKey1 = (char)strtol(Touche1, NULL, 0);
-  ReceivedKey2 = (char)strtol(Touche2, NULL, 0);
-  ReceivedKey3 = (char)strtol(Touche3, NULL, 0);
-  ReceivedKeyNumber = (char)strtol(NumTouche, NULL, 0);
-  Serial.println("ReceivedKey1 : " + String(ReceivedKey1));
-}
-
-void ConvertMedia(const char *ToucheMedia, uint8_t *media, const char *NumTouche)
-{
-  ReceivedKeyNumber = (char)strtol(NumTouche, NULL, 0);
-  char *copy = strdup(ToucheMedia);
-    char *p = strtok(copy, ",");
-    int i = 0;
-    while (p != NULL)
-    {
-      media[i++] = atoi(p);
-      p = strtok(NULL, ",");
-    }
-    free(copy);
-}
 
 void ReceivedKeyConfiguration(WebsocketsMessage message)
 {
   // Trame JSON reçue
   String JsonString = message.data();
   // création d'un document JSON pour stocker données reçues
-  StaticJsonDocument<200> doc;
+  StaticJsonDocument<256> doc;
   // désérialisation de la trame JSON
   DeserializationError error = deserializeJson(doc, JsonString);
   if (error)
@@ -78,57 +58,55 @@ void ReceivedKeyConfiguration(WebsocketsMessage message)
     Serial.println(error.c_str());
     return;
   }
-  JsonObject TOUCHE1 = doc["action"];
+  JsonObject TOUCHE = doc["action"];
   // récupération des données reçues
-  const char *TOUCHE1_KeyNumber = doc["keynumber"];
-  const char *TOUCHE1_Key1 = doc["key1"];
-  const char *TOUCHE1_Key2  = doc["key2"];
-  const char *TOUCHE1_Key3 = doc["key3"];
-  const char *TOUCHE1_IsMedia = doc["isMedia"];
-  IsMedia = TOUCHE1_IsMedia;
-  // conversion des données reçues
-  if(IsMedia == "true")
+  int TOUCHE_KeyNumber = doc["keynumber"];
+  int TOUCHE_IsMedia = doc["isMedia"];
+  int TOUCHE_Key1 = doc["key1"];
+  int TOUCHE_Key2 = doc["key2"];
+  int TOUCHE_Key3 = doc["key3"];
+  // Serial.println("KeyNumber : " + String(TOUCHE_KeyNumber));
+  // Serial.printf("ReceivedKey1 = %d\n", TOUCHE_Key1);
+  // Serial.printf("ReceivedKey2 = %d\n", TOUCHE_Key2);
+  // Serial.printf("ReceivedKey3 = %d\n", TOUCHE_Key3);
+  // Serial.printf("ReceivedIsMedia = %d\n", TOUCHE_IsMedia);
+  Touche[TOUCHE_KeyNumber].IsMedia = TOUCHE_IsMedia;
+  Touche[TOUCHE_KeyNumber].KeyNumber = TOUCHE_KeyNumber;
+
+  if (TOUCHE_IsMedia)
   {
-    Serial.println("Media " + String(TOUCHE1_Key1));
-    ConvertMedia(TOUCHE1_Key1, ReceivedMedia, TOUCHE1_KeyNumber);
+    Serial.printf("MediaInput");
+    Touche[TOUCHE_KeyNumber].MediaInput[0] = TOUCHE_Key1;
+    Touche[TOUCHE_KeyNumber].MediaInput[1] = TOUCHE_Key2;
   }
-  if(IsMedia == "false")
+  else
   {
-    ConvertKey(TOUCHE1_Key1, TOUCHE1_Key2, TOUCHE1_Key3, TOUCHE1_KeyNumber);
+    Serial.printf("KeyInput");
+    Touche[TOUCHE_KeyNumber].KeyInput1 = TOUCHE_Key1;
+    Touche[TOUCHE_KeyNumber].KeyInput2 = TOUCHE_Key2;
+    Touche[TOUCHE_KeyNumber].KeyInput3 = TOUCHE_Key3;
   }
 }
 
-void DefineSelectedKey()
+//
+
+// Détecte l'appui d'une touche du clavier matricielle
+void ToucheAppuyee()
 {
-  if(ReceivedKeyNumber == 1)
+  MatrixKeypad_scan(keypad);       // scans for a key press event
+  if (MatrixKeypad_hasKey(keypad)) // if a key was pressed
   {
-    Touche1.KeyInput1 = ReceivedKey1;
-    Touche1.KeyInput2 = ReceivedKey2;
-    Touche1.KeyInput3 = ReceivedKey3;
-    Touche1.IsMedia = IsMedia;
-    Touche1.MediaInput[0] = ReceivedMedia[0];
-    Touche1.MediaInput[1] = ReceivedMedia[1];
-    Serial.println("Touche1");
-  }
-  else if(ReceivedKeyNumber == 2)
-  {
-    Touche2.KeyInput1 = ReceivedKey1;
-    Touche2.KeyInput2 = ReceivedKey2;
-    Touche2.KeyInput3 = ReceivedKey3;
-    Touche2.IsMedia = IsMedia;
-    Touche2.MediaInput[0] = ReceivedMedia[0];
-    Touche2.MediaInput[1] = ReceivedMedia[1];
-    Serial.println("Touche2");
-  }
-  else if(ReceivedKeyNumber == 3)
-  {
-    Touche3.KeyInput1 = ReceivedKey1;
-    Touche3.KeyInput2 = ReceivedKey2;
-    Touche3.KeyInput3 = ReceivedKey3;
-    Touche3.IsMedia = IsMedia;
-    Touche3.MediaInput[0] = ReceivedMedia[0];
-    Touche3.MediaInput[1] = ReceivedMedia[1];
-    Serial.println("Touche3");
+    Touchepress = MatrixKeypad_getKey(keypad); // get the key that was pressed
+    // char to int touchpress
+    int TouchepressInt = Touchepress - '0';
+    if (TouchepressInt >= 0 && TouchepressInt <= 8)
+    {
+      Touche[TouchepressInt].SendInput();
+    }
+    else
+    {
+      return; // error
+    }
   }
 }
 
@@ -141,9 +119,7 @@ void Bluetooth(void *parameter)
 {
   for (;;)
   {
-    Touche1.SendInput();
-    Touche2.SendInput();
-    Touche3.SendInput();
+    ToucheAppuyee();
     delay(20);
   }
 }
@@ -166,14 +142,11 @@ void setup()
 {
   // Start serial
   Serial.begin(115200);
-  
-  // initialisation des pins et assignation aux classes
-  Touche1.PinNumber = PinTouche1;
-  Touche2.PinNumber = PinTouche2;
-  Touche3.PinNumber = PinTouche3;
-  pinMode(Touche1.PinNumber, INPUT_PULLUP);
-  pinMode(Touche2.PinNumber , INPUT_PULLUP);
-  pinMode(Touche3.PinNumber, INPUT_PULLUP);
+
+  // EEPROM.begin(EEPROM_SIZE);
+
+  // Initialisation du clavier
+  keypad = MatrixKeypad_create((char *)keymap, rowPins, colPins, ROWS, COLS); // creates the keypad object
 
   // Start Bluetooth
   bleKeyboard.begin();
@@ -210,11 +183,9 @@ void setup()
 
   // run callback when messages are received
   client.onMessage([&](WebsocketsMessage message)
-  { 
+                   { 
     Serial.println("Message received: " + message.data());
-    ReceivedKeyConfiguration(message);
-    DefineSelectedKey(); 
-  });
+    ReceivedKeyConfiguration(message); });
 
   // Start tasks
   xTaskCreatePinnedToCore(Configuration, "task1", 10000, NULL, 1, &Conf, 1);
