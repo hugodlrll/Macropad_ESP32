@@ -3,7 +3,8 @@
         "array": "cpp",
         "string": "cpp",
         "string_view": "cpp",
-        "*.tcc": "cpp"
+        "*.tcc": "cpp",
+        "system_error": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

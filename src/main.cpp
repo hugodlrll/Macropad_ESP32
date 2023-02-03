@@ -6,15 +6,21 @@
 #include <Arduino.h>
 #include "KeyConfig.h"
 #include <MatrixKeypad.h>
-// #include <EEPROM.h>
+#include <EEPROM.h>
 
-// #define EEPROM_SIZE 512
+#define EEPROM_SIZE 512
+#define ENC1P 5
+#define ENC1M 2
+#define ENC2P 34
+#define ENC2M 35
+#define ENC3P 18
+#define ENC3M 23
 
 using namespace websockets;
 
 // Classes
 WebsocketsClient client;
-KeyConfig Touche[9];
+KeyConfig Touche[12];
 
 MatrixKeypad_t *keypad;
 
@@ -44,7 +50,7 @@ char Touchepress;
 // Réception des trames JSON
 //-------------------------------------------------------------
 
-void ReceivedKeyConfiguration(WebsocketsMessage message)
+void ReceivedKeyConfiguration(WebsocketsMessage message, int* TOUCHE_KeyNumber)
 {
   // Trame JSON reçue
   String JsonString = message.data();
@@ -60,31 +66,34 @@ void ReceivedKeyConfiguration(WebsocketsMessage message)
   }
   JsonObject TOUCHE = doc["action"];
   // récupération des données reçues
-  int TOUCHE_KeyNumber = doc["keynumber"];
+  *TOUCHE_KeyNumber = doc["keynumber"];
   int TOUCHE_IsMedia = doc["isMedia"];
   int TOUCHE_Key1 = doc["key1"];
   int TOUCHE_Key2 = doc["key2"];
   int TOUCHE_Key3 = doc["key3"];
-  // Serial.println("KeyNumber : " + String(TOUCHE_KeyNumber));
-  // Serial.printf("ReceivedKey1 = %d\n", TOUCHE_Key1);
-  // Serial.printf("ReceivedKey2 = %d\n", TOUCHE_Key2);
-  // Serial.printf("ReceivedKey3 = %d\n", TOUCHE_Key3);
-  // Serial.printf("ReceivedIsMedia = %d\n", TOUCHE_IsMedia);
-  Touche[TOUCHE_KeyNumber].IsMedia = TOUCHE_IsMedia;
-  Touche[TOUCHE_KeyNumber].KeyNumber = TOUCHE_KeyNumber;
+  int TOUCHE_Key4 = doc["key4"];
+  Touche[*TOUCHE_KeyNumber].IsMedia = TOUCHE_IsMedia;
+  Touche[*TOUCHE_KeyNumber].KeyNumber = *TOUCHE_KeyNumber;
 
-  if (TOUCHE_IsMedia)
+  if (TOUCHE_IsMedia == 1)
   {
-    Serial.printf("MediaInput");
-    Touche[TOUCHE_KeyNumber].MediaInput[0] = TOUCHE_Key1;
-    Touche[TOUCHE_KeyNumber].MediaInput[1] = TOUCHE_Key2;
+    //Serial.printf("MediaInput");
+    Touche[*TOUCHE_KeyNumber].MediaInput1[0] = TOUCHE_Key1;
+    Touche[*TOUCHE_KeyNumber].MediaInput1[1] = TOUCHE_Key2;
+  }
+  else if (TOUCHE_IsMedia == 2)
+  {
+    Touche[*TOUCHE_KeyNumber].MediaInput1[0] = TOUCHE_Key1;
+    Touche[*TOUCHE_KeyNumber].MediaInput1[1] = TOUCHE_Key2;
+    Touche[*TOUCHE_KeyNumber].MediaInput2[0] = TOUCHE_Key3;
+    Touche[*TOUCHE_KeyNumber].MediaInput2[1] = TOUCHE_Key4;
   }
   else
   {
-    Serial.printf("KeyInput");
-    Touche[TOUCHE_KeyNumber].KeyInput1 = TOUCHE_Key1;
-    Touche[TOUCHE_KeyNumber].KeyInput2 = TOUCHE_Key2;
-    Touche[TOUCHE_KeyNumber].KeyInput3 = TOUCHE_Key3;
+    //Serial.printf("KeyInput");
+    Touche[*TOUCHE_KeyNumber].KeyInput1 = TOUCHE_Key1;
+    Touche[*TOUCHE_KeyNumber].KeyInput2 = TOUCHE_Key2;
+    Touche[*TOUCHE_KeyNumber].KeyInput3 = TOUCHE_Key3;
   }
 }
 
@@ -110,6 +119,7 @@ void ToucheAppuyee()
   }
 }
 
+
 //-------------------------------------------------------------
 // Tâches exécutées sur les deux coeurs de l'Esp32
 //-------------------------------------------------------------
@@ -119,6 +129,9 @@ void Bluetooth(void *parameter)
 {
   for (;;)
   {
+    Touche[9].EncInput();
+    Touche[10].EncInput();
+    Touche[11].EncInput();
     ToucheAppuyee();
     delay(20);
   }
@@ -135,6 +148,70 @@ void Configuration(void *parameter)
 }
 
 //-------------------------------------------------------------
+// Save & Load Configuration to EEPROM
+//-------------------------------------------------------------
+
+void EEPROMSave(int ToucheId, int Touche1, int Touche2, int Touche3, int ToucheIsMedia, uint8_t Media1[], uint8_t Media2[])
+{
+  int EEPROMAddress = ToucheId * 5;
+  if(ToucheIsMedia == 1)
+  {
+    EEPROM.write(EEPROMAddress, Media1[0]);
+    EEPROM.write(EEPROMAddress + 1, Media1[1]);
+    EEPROM.write(EEPROMAddress + 4, ToucheIsMedia);
+  }
+  else if (ToucheIsMedia == 2)
+  {
+    Serial.println("Media2");
+    EEPROM.write(EEPROMAddress, Media1[0]);
+    EEPROM.write(EEPROMAddress + 1, Media1[1]);
+    EEPROM.write(EEPROMAddress + 2, Media2[0]);
+    EEPROM.write(EEPROMAddress + 3, Media2[1]);
+    EEPROM.write(EEPROMAddress + 4, ToucheIsMedia);
+  }
+  else{
+    EEPROM.write(EEPROMAddress, Touche1);
+    EEPROM.write(EEPROMAddress + 1, Touche2);
+    EEPROM.write(EEPROMAddress + 2, Touche3);
+    EEPROM.write(EEPROMAddress + 4, ToucheIsMedia);
+  }
+  EEPROM.commit();
+}
+
+void EEPROMLoad()
+{
+  for (int i = 0; i < 12; i++)
+  {
+    int EEPROMAddress = i * 5;
+    if(EEPROM.read(EEPROMAddress + 4) == 1)
+    {
+      Touche[i].MediaInput1[0] = EEPROM.read(EEPROMAddress);
+      Touche[i].MediaInput1[1] = EEPROM.read(EEPROMAddress + 1);
+      Touche[i].IsMedia = EEPROM.read(EEPROMAddress + 4);
+    }
+    else if(EEPROM.read(EEPROMAddress + 4) == 2)
+    {
+      Touche[i].MediaInput1[0] = EEPROM.read(EEPROMAddress);
+      Touche[i].MediaInput1[1] = EEPROM.read(EEPROMAddress + 1);
+      Touche[i].MediaInput2[0] = EEPROM.read(EEPROMAddress + 2);
+      Touche[i].MediaInput2[1] = EEPROM.read(EEPROMAddress + 3);
+      Touche[i].IsMedia = EEPROM.read(EEPROMAddress + 4);
+    }
+    else
+    {
+      Touche[i].KeyInput1 = EEPROM.read(EEPROMAddress);
+      Touche[i].KeyInput2 = EEPROM.read(EEPROMAddress + 1);
+      Touche[i].KeyInput3 = EEPROM.read(EEPROMAddress + 2);
+      Touche[i].IsMedia = EEPROM.read(EEPROMAddress + 4);
+      Serial.printf("1) EEPROMAddress = %d\n EEPROMVAlue = %d\n", EEPROMAddress, Touche[i].KeyInput1);
+      Serial.printf("2) EEPROMAddress = %d\n EEPROMVAlue = %d\n", EEPROMAddress + 1, Touche[i].KeyInput2);
+      Serial.printf("3) EEPROMAddress = %d\n EEPROMVAlue = %d\n", EEPROMAddress + 2, Touche[i].KeyInput3);
+      Serial.printf("Media EEPROMAddress = %d\n EEPROMVAlue = %d\n", EEPROMAddress + 3, Touche[i].IsMedia);
+    }
+  }
+}
+
+//-------------------------------------------------------------
 // Setup & Loop
 //-------------------------------------------------------------
 
@@ -143,7 +220,22 @@ void setup()
   // Start serial
   Serial.begin(115200);
 
-  // EEPROM.begin(EEPROM_SIZE);
+  // Initialisation des encodeurs
+  pinMode(ENC1P, INPUT_PULLUP);
+  pinMode(ENC1M, INPUT_PULLUP);
+  pinMode(ENC2P, INPUT_PULLUP);
+  pinMode(ENC2M, INPUT_PULLUP);
+  pinMode(ENC3P, INPUT_PULLUP);
+  pinMode(ENC3M, INPUT_PULLUP);
+  Touche[9].ENCP = ENC1P;
+  Touche[9].ENCM = ENC1M;
+  Touche[10].ENCP = ENC2P;
+  Touche[10].ENCM = ENC2M;
+  Touche[11].ENCP = ENC3P;
+  Touche[11].ENCM = ENC3M;
+
+  EEPROM.begin(EEPROM_SIZE);
+  EEPROMLoad();
 
   // Initialisation du clavier
   keypad = MatrixKeypad_create((char *)keymap, rowPins, colPins, ROWS, COLS); // creates the keypad object
@@ -183,9 +275,12 @@ void setup()
 
   // run callback when messages are received
   client.onMessage([&](WebsocketsMessage message)
-                   { 
-    Serial.println("Message received: " + message.data());
-    ReceivedKeyConfiguration(message); });
+    { 
+      int TOUCHE_KeyNumber;
+      Serial.println("Message received: " + message.data());
+      ReceivedKeyConfiguration(message, &TOUCHE_KeyNumber);
+      EEPROMSave(Touche[TOUCHE_KeyNumber].KeyNumber, Touche[TOUCHE_KeyNumber].KeyInput1, Touche[TOUCHE_KeyNumber].KeyInput2, Touche[TOUCHE_KeyNumber].KeyInput3, Touche[TOUCHE_KeyNumber].IsMedia, Touche[TOUCHE_KeyNumber].MediaInput1, Touche[TOUCHE_KeyNumber].MediaInput2); 
+    });
 
   // Start tasks
   xTaskCreatePinnedToCore(Configuration, "task1", 10000, NULL, 1, &Conf, 1);

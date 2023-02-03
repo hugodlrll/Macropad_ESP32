@@ -11,13 +11,15 @@ public:
     int KeyInput1;
     int KeyInput2;
     int KeyInput3;
+    int KeyInput4;
     int IsMedia;
-    uint8_t MediaInput[2];
-    int PinNumber;
+    uint8_t MediaInput1[2];
+    uint8_t MediaInput2[2];
+    int ENCP;
+    int ENCM;
 
     void SendInput()
     {
-        Serial.printf("KeyNumber = %d, isMedia = %d\n", KeyNumber, IsMedia);
         if (IsMedia)
         {
             ApplyMediaInput();
@@ -33,9 +35,6 @@ public:
         bleKeyboard.press(KeyInput1);
         bleKeyboard.press(KeyInput2);
         bleKeyboard.press(KeyInput3);
-        Serial.printf("KeyInput1 = %d\n", KeyInput1);
-        Serial.printf("KeyInput2 = %d\n", KeyInput2);
-        Serial.printf("KeyInput3 = %d\n", KeyInput3);
         delay(20);
         bleKeyboard.releaseAll();
         delay(20);
@@ -43,7 +42,21 @@ public:
 
     void ApplyMediaInput()
     {
-        bleKeyboard.write(MediaInput);
+        bleKeyboard.write(MediaInput1);
         delay(20);
+    }
+
+    void EncInput()
+    {
+        if(digitalRead(ENCP)==LOW)
+        {
+            bleKeyboard.write(MediaInput1);
+            delay(60);
+        }
+        else if(digitalRead(ENCM)==LOW)
+        {
+            bleKeyboard.write(MediaInput2);
+            delay(60);
+        }
     }
 };
